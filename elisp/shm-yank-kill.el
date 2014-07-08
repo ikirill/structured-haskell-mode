@@ -30,7 +30,18 @@
 (defun shm/kill-region (beg end)
   "Kill the region, and save it in the clipboard."
   (interactive "r")
-  (shm-kill-region nil beg end nil))
+  ;; When deleting only whitespace spanning at least two lines, and
+  ;; there is an expression on the rest of the line at region end,
+  ;; swing that expression up to beg instead of simply deleting
+  ;; whitespace.
+  (cond
+   ((and (string-match-p "\\`[[:blank:]\n]+\\'" (buffer-substring-no-properties beg end))
+         (save-excursion (goto-char beg) (skip-syntax-backward " ") (not (bolp)))
+         (save-excursion (goto-char end) (< beg (line-beginning-position))))
+    (save-excursion (goto-char beg)
+                    (shm/swing-up)))
+   (t
+    (shm-kill-region nil beg end nil))))
 
 (defun shm/copy-region (beg end)
   "Copy the region, and save it in the clipboard."
