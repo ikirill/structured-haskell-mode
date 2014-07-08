@@ -239,6 +239,22 @@ DRAGGING indicates whether this indent will drag a node downwards."
       (indent-to (1- (shm-node-start-column parent)))
       (insert ",")
       (shm-set-node-overlay parent-pair))
+
+     ;; When inside a struct type constructor, the AST seems to be
+     ;; different from AST inside a list.
+     ((and (save-excursion (skip-syntax-forward " ") (eolp))
+           (save-excursion
+             (beginning-of-line)
+             (skip-syntax-forward " ")
+             (and (or (= ?{ (char-after))
+                      (= ?, (char-after)))
+                  (eq 'QualConDecl (shm-node-cons (cdr (shm-current-node-pair)))))))
+      (let ((indent-column (save-excursion (beginning-of-line) (skip-syntax-forward " ") (current-column)))
+            (after-comma (save-excursion (beginning-of-line) (search-forward ",")
+                                         (skip-syntax-forward " "))))
+        (end-of-line)
+        (insert ?\n (make-string indent-column ?\ ) ?, (make-string after-comma ?\ ))))
+
      ;; When inside a list, indent to the list's position with an
      ;; auto-inserted comma.
      ((and parent
