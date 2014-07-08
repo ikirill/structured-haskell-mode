@@ -295,7 +295,7 @@ location. See `shm/yank' for documentation on that."
               ;; If there's an empty line at the end, then strip that
               ;; out. It's just bothersome when pasting back in.
               (goto-char (point-max))
-              (when (looking-at "^$")
+              (when (and (not (bobp)) (looking-at "^$"))
                 (delete-region (1- (point))
                                (point)))
               ;; Finally, the actual save.
