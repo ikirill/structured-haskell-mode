@@ -277,9 +277,17 @@ parse errors that are rarely useful. For example:
 "
   (interactive)
   (shm-with-fallback
-   delete-backward-char
+   (lambda () (interactive)
+     (if hungry-delete-mode
+         (hungry-delete-backward) (delete-backward-char)))
    (let ((case-fold-search nil))
      (cond
+      ;; hungry-delete-backward when current line is only whitespace
+      ((and hungry-delete-mode
+            (save-excursion (beginning-of-line)
+                            (skip-syntax-forward " ")
+                            (eolp)))
+       (hungry-delete-backward))
       ;; These cases are “gliders”. They simply move over the character
       ;; backwards. These could be handled all as one regular
       ;; expression, but in the interest of clarity—for now—they are left
