@@ -67,6 +67,8 @@
     (define-key map (kbd "C-<return>") 'shm/simple-indent-newline-indent)
     ;; Deletion
     (define-key map (kbd "DEL") 'shm/del)
+    (define-key map (kbd "C-d") 'shm/delete)
+    (define-key map (kbd "<delete>") 'shm/delete)
     (define-key map (kbd "<deletechar>") 'shm/delete)
     (define-key map (kbd "M-^") 'shm/delete-indentation)
     (define-key map (kbd "M-DEL") 'shm/backward-kill-word)
