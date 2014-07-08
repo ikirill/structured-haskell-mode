@@ -218,8 +218,7 @@ state that will hopefully be garbage collected."
   slot."
   (interactive)
   (cond
-   ((save-excursion (goto-char (line-beginning-position))
-                    (looking-at "^[ ]*$"))
+   ((save-excursion (skip-syntax-backward " ") (bolp))
     (shm/simple-indent))
    (t
     (shm/jump-to-slot))))
@@ -229,8 +228,7 @@ state that will hopefully be garbage collected."
   slot."
   (interactive)
   (cond
-   ((save-excursion (goto-char (line-beginning-position))
-                    (looking-at "^[ ]*$"))
+   ((save-excursion (skip-syntax-backward " ") (bolp))
     (shm/simple-indent-backtab))
    (t
     (shm/jump-to-previous-slot))))
