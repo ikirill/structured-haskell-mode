@@ -543,14 +543,51 @@ do x <- |
     (insert " ")))
 
 (defun shm/delete ()
-  "Delete the current node."
+  "Delete the current node.
+
+If point is at the end of a line with an expression before it,
+and the next line has an indented expression on it, then do
+`shm/swing-up' instead.
+
+If the rest of the line is whitespace, and the next line is
+empty, then delete the whitespace and all following empty
+lines (`hungry-delete-forward' would have deleted the newline
+before the next non-empty line as well, which would mess with
+indentation).
+"
   (interactive)
-  (shm-with-fallback
-   delete-char
-   (let ((current (shm-current-node))
-         (inhibit-read-only t))
-     (delete-region (shm-node-start current)
-                    (shm-node-end current)))))
+  (let ((fallback
+         (lambda () (interactive)
+           (if hungry-delete-mode (hungry-delete-forward) (delete-char 1)))))
+    (shm-with-fallback
+     (lambda () (interactive)
+           (if hungry-delete-mode (hungry-delete-forward) (delete-char 1)))
+     (let ((current (shm-current-node))
+           (inhibit-read-only t)
+           (whitespace-to-end (save-excursion (skip-syntax-forward " ") (eolp))))
+       (cond
+        ((and (save-excursion (skip-syntax-backward " ") (not (bolp)))
+              whitespace-to-end
+              (save-excursion (and (= 0 (forward-line))
+                                   (skip-syntax-forward " ")
+                                   (not (eolp)))))
+         (condition-case err
+             (shm/swing-up) ; it throws an error if it finds nothing
+           (error (funcall fallback))))
+        ;; Delete many empty lines
+        ((and whitespace-to-end
+              (save-excursion (and (= 0 (forward-line)) (looking-at-p "^\\s-*$"))))
+         (let ((end (line-end-position 2)))
+           (save-excursion (goto-char end)
+                           (while (and (= 0 (forward-line))
+                                       (looking-at-p "^\\s-*$"))
+                             (setq end (line-end-position))))
+           (delete-region (point) end)))
+        ;; Only delete a node when point is right inside it
+        ((< (point) (shm-node-end current))
+         (delete-region (shm-node-start current)
+                        (shm-node-end current)))
+        (t (funcall fallback)))))))
 
 (defun shm/export ()
   "Export the identifier at point."
