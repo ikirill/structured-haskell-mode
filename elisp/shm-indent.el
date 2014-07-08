@@ -209,7 +209,9 @@ DRAGGING indicates whether this indent will drag a node downwards."
          (current (cdr current-pair))
          (parent-pair (shm-node-parent current-pair))
          (parent (cdr parent-pair))
-         (inhibit-read-only t))
+         (inhibit-read-only t)
+         (debug-nodes nil))
+    (when debug-nodes (message "%s\n%s" current parent))
     (cond
      ((or (string= (shm-node-type-name current)
                    "ImportSpecList")
@@ -240,9 +242,16 @@ DRAGGING indicates whether this indent will drag a node downwards."
       (insert ",")
       (shm-set-node-overlay parent-pair))
 
+     ;; These cases for field declarations are a bit hacky.
      ;; When inside a struct type constructor, the AST seems to be
      ;; different from AST inside a list.
-     ((and (save-excursion (skip-syntax-forward " ") (eolp))
+     ;; data A = A
+     ;;   { a :: Int -!-
+     ;;   , b :: Int -!- }
+     ;; The node at point there could be something like BangType,
+     ;; which is why this is a separate case.
+     ((and (or (save-excursion (skip-syntax-forward " ") (eolp))
+               (looking-at-p "\\s-*}\\s-*$"))
            (save-excursion
              (beginning-of-line)
              (skip-syntax-forward " ")
@@ -252,8 +261,42 @@ DRAGGING indicates whether this indent will drag a node downwards."
       (let ((indent-column (save-excursion (beginning-of-line) (skip-syntax-forward " ") (current-column)))
             (after-comma (save-excursion (beginning-of-line) (search-forward ",")
                                          (skip-syntax-forward " "))))
+        (when debug-nodes (message "Case: eolp with QualConDecl at line beginning."))
         (end-of-line)
         (insert ?\n (make-string indent-column ?\ ) ?, (make-string after-comma ?\ ))))
+
+     ;; Another possible case for a declaration of the form
+     ;; "data A = A { b :: C -!- }".
+     ;; When inserting newline at -!-, this should be done like for a
+     ;; sum type as below.
+     ((and parent
+           (eq 'DataDecl (shm-node-cons parent))
+           (eq 'QualConDecl (shm-node-cons current)))
+      (when debug-nodes (message "case QualConDecl/DataDecl"))
+      (let ((indent-column
+             (or
+              ;; data A = A { -!- }
+              (save-excursion (skip-syntax-backward " ")
+                              (when (eq ?{ (char-before)) (1+ (current-column))))
+              ;; data A = A { something :: Int -!- }
+              (save-excursion
+                (skip-syntax-backward " ")
+                (let* ((n (shm-current-node-pair))
+                       (p (shm-node-parent n)))
+                  (or (and n (eq 'FieldDecl (shm-node-cons (cdr n)))
+                           (shm-node-start-column (cdr n)))
+                      (and p (eq 'FieldDecl (shm-node-cons (cdr p)))
+                           (shm-node-start-column (cdr p)))))))))
+        (if (not indent-column)
+            (message "Could not find indentation column.")
+          (insert ?\n (make-string (- indent-column 2) ?\ ) ?, ?\ ))))
+
+     ;; "data A = A { b :: C-!- }".
+     ((and parent (eq 'FieldDecl (shm-node-cons parent)))
+      (when debug-nodes (message "case FieldDecl"))
+      (let ((field-column (shm-node-start-column parent)))
+        (message "%d, %d" field-column comma-column)
+        (insert ?\n (make-string (- field-column 2) ?\ ) ?, ?\ )))
 
      ;; When inside a list, indent to the list's position with an
      ;; auto-inserted comma.
@@ -328,6 +371,7 @@ DRAGGING indicates whether this indent will drag a node downwards."
          (t
           (shm-newline)
           (indent-to column)))))
+
      ;; Indent for sum types
      ((or (and parent
                (eq 'DataDecl (shm-node-cons parent)))
@@ -336,6 +380,7 @@ DRAGGING indicates whether this indent will drag a node downwards."
       (indent-to (shm-node-start-column current))
       (delete-char -2)
       (insert "| "))
+
      ;; Auto-insert commas for field updates
      ((or (string= "FieldUpdate" (shm-node-type-name current))
           (string= "FieldDecl" (shm-node-type-name current))
