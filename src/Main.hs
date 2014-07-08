@@ -87,6 +87,7 @@ parseSomeStmt mode code =
   D . fix <$> parseExpWithMode mode code <|>
   D       <$> parseImport mode code
 
+fix :: AppFixity ast => ast SrcSpanInfo -> ast SrcSpanInfo
 fix ast = fromMaybe ast (applyFixities baseFixities ast)
 
 -- | Parse mode, includes all extensions, doesn't assume any fixities.
