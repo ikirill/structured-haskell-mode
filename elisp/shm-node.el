@@ -89,11 +89,13 @@ deletion. The markers will be garbage collected eventually."
 
 (defun shm-node-pp (n)
   "Pretty print the node."
-  (format "%s: %S: %d—%d"
-          (shm-node-type-name n)
-          (shm-node-cons n)
-          (shm-node-start n)
-          (shm-node-end n)))
+  (if (not n) "nil"
+    (format "%4s: %6S: %d—%d: %s"
+            (shm-node-type-name n)
+            (shm-node-cons n)
+            (shm-node-start n)
+            (shm-node-end n)
+            (buffer-substring (shm-node-start n) (shm-node-end n)))))
 
 (defun shm-node-string (n)
   "Get the string of the region spanned by the node."
