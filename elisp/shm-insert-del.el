@@ -626,7 +626,7 @@ indentation).
        ;; f -!-:: Int -> Int
        ;; the node is the whole function type declaration
        ((= (point) (shm-node-start current))
-        (message "Deleting node: %s\n%s" current (buffer-substring (shm-node-start current) (shm-node-end current)))
+        (message "Deleting node: %s" (shm-node-pp current))
         (delete-region (shm-node-start current)
                        (shm-node-end current))
         (shm/reparse))
