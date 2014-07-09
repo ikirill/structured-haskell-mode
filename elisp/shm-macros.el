@@ -22,13 +22,11 @@
   case run the fallback function insteaad."
   `(if (shm-in-comment)
        (call-interactively ',fallback)
-     (if debug-on-error
+     (condition-case-unless-debug e
          (progn ,@body)
-       (condition-case e
-           (progn ,@body)
-         (error
-          (message "(SHM command failed, falling back to %S. Run M-: (setq debug-on-error t) to see the error.)"
-                   ',fallback)
-          (call-interactively ',fallback))))))
+       (error
+        (message "(SHM command failed, falling back to %S. Run M-: (setq debug-on-error t) to see the error.)"
+                 ',fallback)
+        (call-interactively ',fallback)))))
 
 (provide 'shm-macros)
