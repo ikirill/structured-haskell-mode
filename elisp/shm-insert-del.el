@@ -556,38 +556,82 @@ before the next non-empty line as well, which would mess with
 indentation).
 "
   (interactive)
-  (let ((fallback
-         (lambda () (interactive)
-           (if hungry-delete-mode (hungry-delete-forward) (delete-char 1)))))
-    (shm-with-fallback
-     (lambda () (interactive)
-           (if hungry-delete-mode (hungry-delete-forward) (delete-char 1)))
-     (let ((current (shm-current-node))
-           (inhibit-read-only t)
-           (whitespace-to-end (save-excursion (skip-syntax-forward " ") (eolp))))
-       (cond
-        ((and (save-excursion (skip-syntax-backward " ") (not (bolp)))
-              whitespace-to-end
-              (save-excursion (and (= 0 (forward-line))
-                                   (skip-syntax-forward " ")
-                                   (not (eolp)))))
-         (condition-case err
-             (shm/swing-up) ; it throws an error if it finds nothing
-           (error (funcall fallback))))
-        ;; Delete many empty lines
-        ((and whitespace-to-end
-              (save-excursion (and (= 0 (forward-line)) (looking-at-p "^\\s-*$"))))
-         (let ((end (line-end-position 2)))
-           (save-excursion (goto-char end)
-                           (while (and (= 0 (forward-line))
-                                       (looking-at-p "^\\s-*$"))
-                             (setq end (line-end-position))))
-           (delete-region (point) end)))
-        ;; Only delete a node when point is right inside it
-        ((< (point) (shm-node-end current))
-         (delete-region (shm-node-start current)
-                        (shm-node-end current)))
-        (t (funcall fallback)))))))
+  (let* ((fallback '(if hungry-delete-mode (hungry-delete-forward) (delete-char 1)))
+         (current-pair (shm-current-node-pair))
+         (current (cdr current-pair))
+         (parent (cdr (shm-node-parent current-pair)))
+         whitespace-to-end
+         (special-open-parens (string-to-list "([{"))
+         (special-close-parens (string-to-list ")]}"))
+         (special-constructs "\\(::\\|->\\)") ; length 2
+         )
+    (if (shm-in-comment) (eval fallback)
+      (setq current (shm-current-node)
+            whitespace-to-end (save-excursion (skip-syntax-forward " ") (eolp)))
+      (cond
+       ((eobp) nil)
+       ;; Swing up: at the end of a line with an expression behind and
+       ;; an expression on the next line
+       ;; If swing-up fails, go to the other cases.
+       ((and (save-excursion (skip-syntax-backward " ") (not (bolp)))
+             whitespace-to-end
+             (save-excursion (and (= 0 (forward-line))
+                                  (skip-syntax-forward " ")
+                                  (not (eolp))))
+             (shm/swing-up/attempt)))
+       ;; Delete many empty lines
+       ((and whitespace-to-end
+             (or (eobp)
+                 (save-excursion (and (= 0 (forward-line)) (looking-at-p "^\\s-*$")))))
+        (let ((end (line-end-position 2)))
+          (save-excursion (goto-char end)
+                          (while (and (= 0 (forward-line))
+                                      (looking-at-p "^\\s-*$"))
+                            (setq end (line-end-position))))
+          (delete-region (point) end)))
+       ;; Delete whitespace, not node when char-after is whitespace
+       ((= 0 (syntax-class (syntax-after (point))))
+        (eval fallback))
+       ;; When looking at the start of a list of some kind, don't
+       ;; delete the opening paren and skip it
+       ((memq (char-after) special-open-parens)
+        (forward-char))
+       ;; When looking at the end of a list, delete empty lists with
+       ;; no whitespace, otherwise skip then paren
+       ((memq (char-after) special-close-parens)
+        (if (memq (char-before) special-open-parens)
+            (progn (forward-char) (delete-char -2))
+          (forward-char)))
+       ;; Delete strings as paredit does
+       ((and (shm-in-string) (= ?\" (char-after)))
+        (if (= ?\" (char-before))
+            (progn (forward-char) (delete-char -2))
+          (forward-char)))
+       ((= (char-after) ?\")
+        (forward-char))
+       ;; Special constructs that are deleted whole
+       ((or (looking-at special-constructs)
+            (and (not (bolp))
+                 (save-excursion (backward-char) (looking-at special-constructs))))
+        (delete-region (match-beginning 1) (match-end 1))
+        (shm/reparse))
+       ;; "-!-Tree a" => ""
+       ((and (eq 'TyCon (shm-node-cons current))
+             (eq 'TyApp (shm-node-cons parent))
+             (eq (point) (shm-node-start parent)))
+        (delete-region (shm-node-start parent) (shm-node-end parent))
+        (shm/reparse))
+       ;; Only delete a node when point is right before it
+       ;; I find it confusing otherwise, e.g., in
+       ;; f -!-:: Int -> Int
+       ;; the node is the whole function type declaration
+       ((= (point) (shm-node-start current))
+        (message "Deleting node: %s\n%s" current (buffer-substring (shm-node-start current) (shm-node-end current)))
+        (delete-region (shm-node-start current)
+                       (shm-node-end current))
+        (shm/reparse))
+       ;; Fall back
+       (t (eval fallback))))))
 
 (defun shm/export ()
   "Export the identifier at point."
