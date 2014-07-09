@@ -599,7 +599,7 @@ indentation).
        ;; When looking at the end of a list, delete empty lists with
        ;; no whitespace, otherwise skip then paren
        ((memq (char-after) special-close-parens)
-        (if (memq (char-before) special-open-parens)
+        (if (= (matching-paren (char-after)) (char-before))
             (progn (forward-char) (delete-char -2))
           (forward-char)))
        ;; Delete strings as paredit does
