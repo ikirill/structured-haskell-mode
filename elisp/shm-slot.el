@@ -191,3 +191,7 @@ module | where"
   (forward-char -1))
 
 (provide 'shm-slot)
+
+;; Local Variables:
+;; byte-compile-warnings: (not cl-functions)
+;; End:

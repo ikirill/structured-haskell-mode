@@ -61,3 +61,7 @@ NODE-PAIR in the overlay."
                  (overlays-in (point-min) (point-max))))
 
 (provide 'shm-overlays)
+
+;; Local Variables:
+;; byte-compile-warnings: (not cl-functions)
+;; End:

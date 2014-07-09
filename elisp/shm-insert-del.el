@@ -603,3 +603,7 @@ indentation).
       (insert name))))
 
 (provide 'shm-insert-del)
+
+;; Local Variables:
+;; byte-compile-warnings: (not cl-functions)
+;; End:

@@ -624,3 +624,7 @@ node. This function will return the *actual* node at point. See
     (elt vector 0)))
 
 (provide 'shm-ast)
+
+;; Local Variables:
+;; byte-compile-warnings: (not cl-functions)
+;; End:
