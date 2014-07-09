@@ -108,6 +108,13 @@ hai = do
         (delete-region start (point))
         column))))
 
+(defun shm/swing-up/attempt ()
+  "Same as shm/swing-up, but returns nil on failure instead of an error."
+  (condition-case err
+      (progn (shm/swing-up) t)
+    (error (message "%s" err)
+           nil)))
+
 (defun shm/swing-up ()
   "Swing the children of the current node upwards.
 
