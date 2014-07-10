@@ -90,14 +90,19 @@ Very useful for debugging and also a bit useful for newbies."
                    nil
                    t)))
 
-(defun shm-message-nodes ()
+(defun shm-message-nodes (&optional pp)
   "Print current node and its parent to message buffer."
   (let* ((current-pair (shm-current-node-pair))
-         (parent (and current-pair (cdr (shm-node-parent current-pair))))
-         (current (cdr current-pair)))
-    (message "Node:   %s\nParent: %s"
-             (shm-node-pp current)
-             (shm-node-pp parent))
+         (parent-pair (and current-pair (shm-node-parent current-pair)))
+         (p-parent-pair (and parent-pair (shm-node-parent parent-pair))))
+    (if pp
+        (message "Node:   %s\nParent: %s\nParent: %s"
+                 (shm-node-pp (cdr current-pair))
+                 (shm-node-pp (cdr parent-pair))
+                 (shm-node-pp (cdr p-parent-pair)))
+      (message "Node:   %s\nParent: %s"
+               (shm-node-pp (cdr current-pair))
+               (shm-node-pp (cdr parent-pair))))
     nil))
 
 (defun shm-message-nodes/add ()
