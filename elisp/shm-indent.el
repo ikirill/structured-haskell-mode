@@ -17,6 +17,7 @@
 
 ;;; Code:
 
+(require 'shm-simple-indent)
 (require 'shm-layout)
 
 (defun shm/delete-indentation ()
