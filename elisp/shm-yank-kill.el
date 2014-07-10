@@ -38,8 +38,9 @@
    ((and (string-match-p "\\`[[:blank:]\n]+\\'" (buffer-substring-no-properties beg end))
          (save-excursion (goto-char beg) (skip-syntax-backward " ") (not (bolp)))
          (save-excursion (goto-char end) (< beg (line-beginning-position))))
-    (save-excursion (goto-char beg)
-                    (shm/swing-up)))
+    (or (save-excursion (goto-char beg)
+                        (shm/swing-up/attempt))
+        (shm-kill-region nil beg end nil)))
    (t
     (shm-kill-region nil beg end nil))))
 

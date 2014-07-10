@@ -22,6 +22,11 @@
 (require 'shm-layout)
 (require 'shm-indent)
 
+(defvar shm-regexp-delete-whole
+  "\\(::\\|->\\|()\\|{}\\|\"\"\\|\+\+\\)"
+  "A regexp whose group 1 matches things that must be deleted
+  whole, not character by character.")
+
 (defun shm-post-self-insert ()
   "Self-insertion handler."
   (save-excursion
@@ -276,118 +281,81 @@ parse errors that are rarely useful. For example:
 
 "
   (interactive)
-  (shm-with-fallback
-   (lambda () (interactive)
-     (if hungry-delete-mode
-         (hungry-delete-backward) (delete-backward-char)))
-   (let ((case-fold-search nil))
-     (cond
-      ;; hungry-delete-backward when current line is only whitespace
-      ((and hungry-delete-mode
-            (save-excursion (beginning-of-line)
-                            (skip-syntax-forward " ")
-                            (eolp)))
-       (hungry-delete-backward))
-      ;; These cases are “gliders”. They simply move over the character
-      ;; backwards. These could be handled all as one regular
-      ;; expression, but in the interest of clarity—for now—they are left
-      ;; as separate cases.
-      ((and (shm-in-string)
-            (looking-back "^[ ]*\\\\"))
-       (let ((here (point)))
-         (delete-region (search-backward-regexp "\\\\$")
-                        here)))
-      ((and (looking-back "{-[ ]*")
-            (looking-at "[ ]*-}"))
-       (delete-region (search-backward-regexp "-")
-                      (progn (forward-char 1)
-                             (search-forward-regexp "-"))))
-      ((and (looking-back "^{-#[ ]*")
-            (looking-at "[ ]*#-}$"))
-       (delete-region (search-backward-regexp "#")
-                      (progn (forward-char 1)
-                             (search-forward-regexp "#"))))
-      ((looking-back "[()]") (shm-delete-or-glide "(" ")"))
-      ((looking-back "[[]") (shm-delete-or-glide "\\[" "\\]"))
-      ((looking-back "[]]") (shm-delete-or-glide "\\[" "\\]"))
-      ((looking-back "[{}]") (shm-delete-or-glide "{" "}"))
-      ((looking-back "[\"]") (shm-delete-or-glide "\"" "\""))
-      ;; These kind of patterns block the parens of syntaxes that would
-      ;; otherwise break everything, so, "if", "of", "case", "do",
-      ;; etc. if deleted.
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back "[^A-Zaz0-9_]do ?")
-            (not (or (eolp)
-                     (looking-at "[])}]"))))
-       nil)                             ; do nothing
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back " <-")
-            (not (or (eolp)
-                     (looking-at "[])}]"))))
-       (forward-char -3))
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back " <- ")
-            (not (or (eolp)
-                     (looking-at "[])}]"))))
-       (forward-char -4))
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back "[^A-Zaz0-9_]of ?"))
-       (search-backward-regexp "[ ]*of"))
-      ((and (shm-prevent-parent-deletion-p)
-            (or (looking-at "of$")
-                (looking-at "of ")))
-       (forward-char -1))
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back "[_ ]-> ?")) (forward-char -3))
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-at "-> ?"))
-       (forward-char -1))
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back "[^A-Zaz0-9_]then ?"))
-       (search-backward-regexp "[^ ][ ]*then")
-       (unless (or (looking-at "$") (looking-at " "))
-         (forward-char 1)))
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back "[^A-Zaz0-9_]else ?"))
-       (search-backward-regexp "[^ ][ ]*else")
-       (unless (or (looking-at "$") (looking-at " "))
-         (forward-char 1)))
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back "^module ?"))
-       (when (looking-at "[ ]*where$")
-         (delete-region (line-beginning-position) (line-end-position))))
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back "[^A-Zaz0-9_]if ?"))
-       nil)                             ; do nothing
-      ((and (shm-prevent-parent-deletion-p)
-            (looking-back "[^A-Zaz0-9_]case ?"))
-       nil)                             ; do nothing
-      ((and (shm-prevent-parent-deletion-p)
-            (and (looking-at "= ")
-                 (looking-back " ")))
-       (forward-char -1))
-      ((and (shm-prevent-parent-deletion-p)
-            (or (and (looking-back " = ")
-                     (not (looking-at "$"))
-                     (not (looking-at " ")))
-                (and (looking-back "=")
-                     (looking-at " "))))
-       (search-backward-regexp "[ ]+=[ ]*"
-                               (line-beginning-position)
-                               t
-                               1)
-       (when (looking-back " ")
-         (when (search-backward-regexp "[^ ]" (line-beginning-position)
-                                       t 1)
-           (forward-char 1))))
-      ;; This is the base case, we assume that we can freely delete
-      ;; whatever we're looking back at, and that the node will be able
-      ;; to re-parse it.
-      (t (shm-delete-char)
-         (save-excursion
-           (shm-appropriate-adjustment-point 'backward)
-           (shm-adjust-dependents (point) -1))))))
-  (shm/init t))
+  (let* ((fallback '(if hungry-delete-mode (hungry-delete-backward) (delete-char -1)))
+         (current-pair (shm-current-node-pair))
+         (current (cdr current-pair))
+         (parent (and current-pair (cdr (shm-node-parent current-pair))))
+         (whitespace-to-bol (save-excursion (skip-syntax-backward " " (line-beginning-position)) (bolp)))
+         (whitespace-to-eol (save-excursion (skip-syntax-forward " " (line-end-position)) (eolp)))
+         (special-open-parens (string-to-list "([{"))
+         (special-close-parens (string-to-list ")]}")))
+    (cond
+     ((shm-in-comment) (eval fallback))
+     ((bobp) nil)
+     ;; Only whitespace - delete to furthest empty line
+     ((and whitespace-to-bol whitespace-to-eol)
+      (let ((end (point)) (beg (progn (beginning-of-line) (point))))
+        (save-excursion
+          (while (and (= 0 (forward-line -1))
+                      (looking-at-p "^[[:blank:]]*$"))
+            (setq beg (point))))
+        (if (> end beg)
+            (delete-region beg end)
+          ;; No empty lines, so fall back
+          (eval fallback))))
+     ;; Strings
+     ((= ?\" (char-before))
+      (if (/= ?\" (char-after))
+          (backward-char)
+        (backward-char)
+        (delete-char 2)
+        (shm/reparse)))
+     ((shm-in-string) (eval fallback))
+     ;; Whitespace to the left - deindent current node
+     ((and whitespace-to-bol)
+      ;; We only want deindent to work when point is that top-most
+      ;; node.  So go the first parent that starts before point, and
+      ;; check that the current node is its first child.
+
+      ;; FIXME I don't think this really works right now. In
+      ;; where
+      ;;    loop
+      ;;  !loop
+      ;;    loop
+      ;; the first loop isn't adjusted properly:
+      ;; where
+      ;;    loop
+      ;;   loop
+      ;;   loop
+      (back-to-indentation)
+      (let ((a (cdr (shm-node-ancestor-at-point (shm-current-node-pair) (point)))))
+        (message "Node:%s\nAnce:%s" (shm-node-pp current) (shm-node-pp a))
+        (message "%d/%d" (line-number-at-pos (shm-node-start a)) (line-number-at-pos (shm-node-end a)))
+        (if (< (line-number-at-pos (shm-node-start a)) (line-number-at-pos (shm-node-end a)))
+            (progn (delete-char -1)
+                   (shm-move-dependents -1 (point)))
+          (delete-char -1))))
+     ;; Lists and parentheses of different kinds
+     ;; Braces are special because they are appear as remains of
+     ;; comment delimiters
+     ((memq (char-before) special-close-parens)
+      (if (and (= ?} (char-before)) (not (and current (memq (shm-node-cons current)
+                                                            '(DataDecl QualConDecl)))))
+          (delete-char -1)
+        (backward-char)))
+     ((memq (char-before) special-open-parens)
+      (if (/= (matching-paren (char-before)) (char-after))
+          (if (and (= ?{ (char-before)) (not (and current (memq (shm-node-cons current)
+                                                                '(DataDecl QualConDecl)))))
+              (delete-char -1)
+            (backward-char))
+        ;; This is an empty pair of parens
+        (delete-region (1- (point)) (1+ (point)))))
+     ((and (looking-back "{-") (looking-at-p "-}"))
+      (delete-region (- (point) 2) (+ (point) 2)))
+     ((looking-back shm-regexp-delete-whole)
+      (delete-region (match-beginning 1) (match-end 1)))
+     (t (eval fallback)))))
 
 (defun shm-prevent-parent-deletion-p ()
   "Prevent parent deletion at point?"
@@ -559,79 +527,91 @@ indentation).
   (let* ((fallback '(if hungry-delete-mode (hungry-delete-forward) (delete-char 1)))
          (current-pair (shm-current-node-pair))
          (current (cdr current-pair))
-         (parent (cdr (shm-node-parent current-pair)))
-         whitespace-to-end
+         (parent (and current-pair (cdr (shm-node-parent current-pair))))
+         (whitespace-to-end (save-excursion (skip-syntax-forward " ") (eolp)))
          (special-open-parens (string-to-list "([{"))
-         (special-close-parens (string-to-list ")]}"))
-         (special-constructs "\\(::\\|->\\)") ; length 2
-         )
-    (if (shm-in-comment) (eval fallback)
-      (setq current (shm-current-node)
-            whitespace-to-end (save-excursion (skip-syntax-forward " ") (eolp)))
-      (cond
-       ((eobp) nil)
-       ;; Swing up: at the end of a line with an expression behind and
-       ;; an expression on the next line
-       ;; If swing-up fails, go to the other cases.
-       ((and (save-excursion (skip-syntax-backward " ") (not (bolp)))
-             whitespace-to-end
-             (save-excursion (and (= 0 (forward-line))
-                                  (skip-syntax-forward " ")
-                                  (not (eolp))))
-             (shm/swing-up/attempt)))
-       ;; Delete many empty lines
-       ((and whitespace-to-end
-             (or (eobp)
-                 (save-excursion (and (= 0 (forward-line)) (looking-at-p "^\\s-*$")))))
-        (let ((end (line-end-position 2)))
-          (save-excursion (goto-char end)
-                          (while (and (= 0 (forward-line))
-                                      (looking-at-p "^\\s-*$"))
-                            (setq end (line-end-position))))
-          (delete-region (point) end)))
-       ;; Delete whitespace, not node when char-after is whitespace
-       ((= 0 (syntax-class (syntax-after (point))))
-        (eval fallback))
-       ;; When looking at the start of a list of some kind, don't
-       ;; delete the opening paren and skip it
-       ((memq (char-after) special-open-parens)
-        (forward-char))
-       ;; When looking at the end of a list, delete empty lists with
-       ;; no whitespace, otherwise skip then paren
-       ((memq (char-after) special-close-parens)
-        (if (= (matching-paren (char-after)) (char-before))
-            (progn (forward-char) (delete-char -2))
-          (forward-char)))
-       ;; Delete strings as paredit does
-       ((and (shm-in-string) (= ?\" (char-after)))
-        (if (= ?\" (char-before))
-            (progn (forward-char) (delete-char -2))
-          (forward-char)))
-       ((= (char-after) ?\")
-        (forward-char))
-       ;; Special constructs that are deleted whole
-       ((or (looking-at special-constructs)
-            (and (not (bolp))
-                 (save-excursion (backward-char) (looking-at special-constructs))))
-        (delete-region (match-beginning 1) (match-end 1))
-        (shm/reparse))
-       ;; "-!-Tree a" => ""
-       ((and (eq 'TyCon (shm-node-cons current))
-             (eq 'TyApp (shm-node-cons parent))
-             (eq (point) (shm-node-start parent)))
-        (delete-region (shm-node-start parent) (shm-node-end parent))
-        (shm/reparse))
-       ;; Only delete a node when point is right before it
-       ;; I find it confusing otherwise, e.g., in
-       ;; f -!-:: Int -> Int
-       ;; the node is the whole function type declaration
-       ((= (point) (shm-node-start current))
-        (message "Deleting node: %s" (shm-node-pp current))
-        (delete-region (shm-node-start current)
-                       (shm-node-end current))
-        (shm/reparse))
-       ;; Fall back
-       (t (eval fallback))))))
+         (special-close-parens (string-to-list ")]}")))
+    (cond
+     ((eobp) nil)
+     ;; FIXME This is bad: deleting forward !{--}
+     ;; will fail to delete the last brace.
+     ((shm-in-comment) (eval fallback))
+
+     ;; Swing up: at the end of a line with an expression behind and
+     ;; an expression on the next line
+     ;; If swing-up fails, go to the other cases.
+     ((and (save-excursion (skip-syntax-backward " ") (not (bolp)))
+           whitespace-to-end
+           (save-excursion (and (= 0 (forward-line))
+                                (skip-syntax-forward " ")
+                                (not (eolp))))
+           (shm/swing-up/attempt)))
+     ;; Delete many empty lines
+     ((and whitespace-to-end
+           (or (eobp)
+               (save-excursion (and (= 0 (forward-line)) (looking-at-p "^\\s-*$")))))
+      (let ((end (line-end-position 2)))
+        (save-excursion (goto-char end)
+                        (while (and (= 0 (forward-line))
+                                    (looking-at-p "^\\s-*$"))
+                          (setq end (line-end-position))))
+        (delete-region (point) end)))
+     ;; Delete whitespace, not node when char-after is whitespace
+     ((= 0 (syntax-class (syntax-after (point))))
+      (eval fallback))
+     ;; When looking at the start of a list of some kind, don't
+     ;; delete the opening paren and skip it
+     ((memq (char-after) special-open-parens)
+      (forward-char))
+     ;; When looking at the end of a list, delete empty lists with
+     ;; no whitespace, otherwise skip then paren
+     ((memq (char-after) special-close-parens)
+      (cond ((= (matching-paren (char-after)) (char-before))
+             (progn (forward-char) (delete-char -2)))
+            ;; braces are special because the closing brace of a
+            ;; comment is not a comment delimiter by itself.
+            ((and (= ?} (char-after))
+                  current
+                  (memq (shm-node-cons current) '(DataDecl QualConDecl FieldDecl)))
+             (forward-char 1))
+            (t (delete-char 1))))
+     ;; Delete strings as paredit does
+     ((and (shm-in-string) (= ?\" (char-after)))
+      (if (= ?\" (char-before))
+          (progn (forward-char) (delete-char -2))
+        (forward-char)))
+     ((= (char-after) ?\")
+      (forward-char))
+     ;; Special constructs that are deleted whole
+     ((or (looking-at shm-regexp-delete-whole)
+          (and (not (bolp))
+               (save-excursion (backward-char)
+                               (looking-at shm-regexp-delete-whole))))
+      (delete-region (match-beginning 1) (match-end 1))
+      (shm/reparse))
+     ;; Fall back
+     ((not current) (delete-char 1))
+     ;; "-!-Tree a" => ""
+     ((and parent
+           (eq 'TyCon (shm-node-cons current))
+           (eq 'TyApp (shm-node-cons parent))
+           (eq (point) (shm-node-start parent)))
+      (delete-region (shm-node-start parent) (shm-node-end parent))
+      (shm/reparse))
+     ;; Only delete a node when point is right before it
+     ;; I find it confusing otherwise, e.g., in
+     ;; f -!-:: Int -> Int
+     ;; the node is the whole function type declaration
+     ((and (= (point) (shm-node-start current))
+           ;; Sometimes the current node is empty (e.g., parse error)
+           ;; so fall through
+           (> (shm-node-end current) (shm-node-start current)))
+      (message "Deleting node: %s" (shm-node-pp current))
+      (delete-region (shm-node-start current)
+                     (shm-node-end current))
+      (shm/reparse))
+     ;; Fall back
+     (t (eval fallback)))))
 
 (defun shm/export ()
   "Export the identifier at point."
